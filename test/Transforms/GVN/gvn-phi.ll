@@ -1,4 +1,4 @@
-; RUN: opt -gvn < %s | FileCheck %s
+; RUN: opt -gvn -S < %s | FileCheck %s
 
 @string1 = constant [8 x i8] c"String 1"
 @string2 = constant [8 x i8] c"String 2"

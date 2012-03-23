@@ -38,7 +38,9 @@
 #include "llvm/ADT/DepthFirstIterator.h"
 #include "llvm/ADT/Hashing.h"
 #include "llvm/ADT/SmallPtrSet.h"
+#include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/Statistic.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/Allocator.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
@@ -102,12 +104,12 @@ namespace {
 
     uint32_t nextValueNumber;
 
-    Expression create_expression(Instruction* I);
+    Expression create_expression(Instruction *I);
     Expression create_cmp_expression(unsigned Opcode,
                                      CmpInst::Predicate Predicate,
                                      Value *LHS, Value *RHS);
-    Expression create_extractvalue_expression(ExtractValueInst* EI);
-    uint32_t lookup_or_add_call(CallInst* C);
+    Expression create_extractvalue_expression(ExtractValueInst *EI);
+    uint32_t lookup_or_add_call(CallInst *C);
   public:
     ValueTable() : nextValueNumber(1) { }
     uint32_t lookup_or_add(Value *V);
@@ -116,11 +118,11 @@ namespace {
                                Value *LHS, Value *RHS);
     void add(Value *V, uint32_t num);
     void clear();
-    void erase(Value *v);
-    void setAliasAnalysis(AliasAnalysis* A) { AA = A; }
+    void erase(Value *V);
+    void setAliasAnalysis(AliasAnalysis *A) { AA = A; }
     AliasAnalysis *getAliasAnalysis() const { return AA; }
-    void setMemDep(MemoryDependenceAnalysis* M) { MD = M; }
-    void setDomTree(DominatorTree* D) { DT = D; }
+    void setMemDep(MemoryDependenceAnalysis *M) { MD = M; }
+    void setDomTree(DominatorTree *D) { DT = D; }
     uint32_t getNextUnusedValueNumber() { return nextValueNumber; }
     void verifyRemoved(const Value *) const;
   };
@@ -265,16 +267,16 @@ void ValueTable::add(Value *V, uint32_t num) {
   valueNumbering.insert(std::make_pair(V, num));
 }
 
-uint32_t ValueTable::lookup_or_add_call(CallInst* C) {
+uint32_t ValueTable::lookup_or_add_call(CallInst *C) {
   if (AA->doesNotAccessMemory(C)) {
     Expression exp = create_expression(C);
-    uint32_t& e = expressionNumbering[exp];
+    uint32_t &e = expressionNumbering[exp];
     if (!e) e = nextValueNumber++;
     valueNumbering[C] = e;
     return e;
   } else if (AA->onlyReadsMemory(C)) {
     Expression exp = create_expression(C);
-    uint32_t& e = expressionNumbering[exp];
+    uint32_t &e = expressionNumbering[exp];
     if (!e) {
       e = nextValueNumber++;
       valueNumbering[C] = e;
@@ -289,12 +291,12 @@ uint32_t ValueTable::lookup_or_add_call(CallInst* C) {
     MemDepResult local_dep = MD->getDependency(C);
 
     if (!local_dep.isDef() && !local_dep.isNonLocal()) {
-      valueNumbering[C] =  nextValueNumber;
+      valueNumbering[C] = nextValueNumber;
       return nextValueNumber++;
     }
 
     if (local_dep.isDef()) {
-      CallInst* local_cdep = cast<CallInst>(local_dep.getInst());
+      CallInst *local_cdep = cast<CallInst>(local_dep.getInst());
 
       if (local_cdep->getNumArgOperands() != C->getNumArgOperands()) {
         valueNumbering[C] = nextValueNumber;
@@ -319,7 +321,7 @@ uint32_t ValueTable::lookup_or_add_call(CallInst* C) {
     const MemoryDependenceAnalysis::NonLocalDepInfo &deps =
       MD->getNonLocalCallDependency(CallSite(C));
     // FIXME: Move the checking logic to MemDep!
-    CallInst* cdep = 0;
+    CallInst *cdep = 0;
 
     // Check to see if we have a single dominating call instruction that is
     // identical to C.
@@ -386,7 +388,7 @@ uint32_t ValueTable::lookup_or_add(Value *V) {
     return nextValueNumber++;
   }
   
-  Instruction* I = cast<Instruction>(V);
+  Instruction *I = cast<Instruction>(V);
   Expression exp;
   switch (I->getOpcode()) {
     case Instruction::Call:
@@ -439,7 +441,7 @@ uint32_t ValueTable::lookup_or_add(Value *V) {
       return nextValueNumber++;
   }
 
-  uint32_t& e = expressionNumbering[exp];
+  uint32_t &e = expressionNumbering[exp];
   if (!e) e = nextValueNumber++;
   valueNumbering[V] = e;
   return e;
@@ -461,7 +463,7 @@ uint32_t ValueTable::lookup_or_add_cmp(unsigned Opcode,
                                        CmpInst::Predicate Predicate,
                                        Value *LHS, Value *RHS) {
   Expression exp = create_cmp_expression(Opcode, Predicate, LHS, RHS);
-  uint32_t& e = expressionNumbering[exp];
+  uint32_t &e = expressionNumbering[exp];
   if (!e) e = nextValueNumber++;
   return e;
 }
@@ -554,8 +556,8 @@ namespace {
     /// removeFromLeaderTable - Scan the list of values corresponding to a given
     /// value number, and remove the given value if encountered.
     void removeFromLeaderTable(uint32_t N, Value *V, BasicBlock *BB) {
-      LeaderTableEntry* Prev = 0;
-      LeaderTableEntry* Curr = &LeaderTable[N];
+      LeaderTableEntry *Prev = 0;
+      LeaderTableEntry *Curr = &LeaderTable[N];
 
       while (Curr->Val != V || Curr->BB != BB) {
         Prev = Curr;
@@ -569,7 +571,7 @@ namespace {
           Curr->Val = 0;
           Curr->BB = 0;
         } else {
-          LeaderTableEntry* Next = Curr->Next;
+          LeaderTableEntry *Next = Curr->Next;
           Curr->Val = Next->Val;
           Curr->BB = Next->BB;
           Curr->Next = Next->Next;
@@ -626,7 +628,7 @@ INITIALIZE_PASS_DEPENDENCY(TargetLibraryInfo)
 INITIALIZE_AG_DEPENDENCY(AliasAnalysis)
 INITIALIZE_PASS_END(GVN, "gvn", "Global Value Numbering", false, false)
 
-void GVN::dump(DenseMap<uint32_t, Value*>& d) {
+void GVN::dump(DenseMap<uint32_t, Value*> &d) {
   errs() << "{\n";
   for (DenseMap<uint32_t, Value*>::iterator I = d.begin(),
        E = d.end(); I != E; ++I) {
@@ -1311,7 +1313,7 @@ static Value *ConstructSSAForLoadSet(LoadInst *LI,
 }
 
 static bool isLifetimeStart(const Instruction *Inst) {
-  if (const IntrinsicInst* II = dyn_cast<IntrinsicInst>(Inst))
+  if (const IntrinsicInst *II = dyn_cast<IntrinsicInst>(Inst))
     return II->getIntrinsicID() == Intrinsic::lifetime_start;
   return false;
 }
@@ -1930,7 +1932,7 @@ Value *GVN::findLeader(BasicBlock *BB, uint32_t num) {
     if (isa<Constant>(Val)) return Val;
   }
   
-  LeaderTableEntry* Next = Vals.Next;
+  LeaderTableEntry *Next = Vals.Next;
   while (Next) {
     if (DT->dominates(Next->BB, BB)) {
       if (isa<Constant>(Next->Val)) return Next->Val;
@@ -1970,114 +1972,177 @@ unsigned GVN::replaceAllDominatedUsesWith(Value *From, Value *To,
   return Count;
 }
 
+namespace {
+struct QueueEntry {
+  QueueEntry(Value *LHS, Value *RHS)
+    : LHS(LHS), RHS(RHS) {}
+
+  Value *LHS, *RHS;
+};
+}
+
 /// propagateEquality - The given values are known to be equal in every block
 /// dominated by 'Root'.  Exploit this, for example by replacing 'LHS' with
 /// 'RHS' everywhere in the scope.  Returns whether a change was made.
 bool GVN::propagateEquality(Value *LHS, Value *RHS, BasicBlock *Root) {
-  if (LHS == RHS) return false;
-  assert(LHS->getType() == RHS->getType() && "Equal but types differ!");
+  // 
+  SmallVector<QueueEntry, 16> Queue;
+  Queue.push_back(QueueEntry(LHS, RHS));
 
-  // Don't try to propagate equalities between constants.
-  if (isa<Constant>(LHS) && isa<Constant>(RHS))
-    return false;
+  SmallSet<BasicBlock *, 4> BlocksOfPHINodes;
 
-  // Prefer a constant on the right-hand side, or an Argument if no constants.
-  if (isa<Constant>(LHS) || (isa<Argument>(LHS) && !isa<Constant>(RHS)))
-    std::swap(LHS, RHS);
-  assert((isa<Argument>(LHS) || isa<Instruction>(LHS)) && "Unexpected value!");
-
-  // If there is no obvious reason to prefer the left-hand side over the right-
-  // hand side, ensure the longest lived term is on the right-hand side, so the
-  // shortest lived term will be replaced by the longest lived.  This tends to
-  // expose more simplifications.
-  uint32_t LVN = VN.lookup_or_add(LHS);
-  if ((isa<Argument>(LHS) && isa<Argument>(RHS)) ||
-      (isa<Instruction>(LHS) && isa<Instruction>(RHS))) {
-    // Move the 'oldest' value to the right-hand side, using the value number as
-    // a proxy for age.
-    uint32_t RVN = VN.lookup_or_add(RHS);
-    if (LVN < RVN) {
-      std::swap(LHS, RHS);
-      LVN = RVN;
-    }
-  }
-
-  // If value numbering later deduces that an instruction in the scope is equal
-  // to 'LHS' then ensure it will be turned into 'RHS'.
-  addToLeaderTable(LVN, RHS, Root);
-
-  // Replace all occurrences of 'LHS' with 'RHS' everywhere in the scope.  As
-  // LHS always has at least one use that is not dominated by Root, this will
-  // never do anything if LHS has only one use.
   bool Changed = false;
-  if (!LHS->hasOneUse()) {
+  do {
+    QueueEntry Node = Queue.pop_back_val();
+
+    Value *LHS = Node.LHS;
+    Value *RHS = Node.RHS;
+
+    if (LHS == RHS) continue;
+    assert(LHS->getType() == RHS->getType() && "Equal but types differ!");
+
+    // Don't try to propagate equalities between constants.
+    if (isa<Constant>(LHS) && isa<Constant>(RHS))
+      continue;
+
+    // Prefer a constant on the right-hand side, or an Argument if no constants.
+    if (isa<Constant>(LHS) || (isa<Argument>(LHS) && !isa<Constant>(RHS)))
+      std::swap(LHS, RHS);
+    assert((isa<Argument>(LHS) || isa<Instruction>(LHS)) &&
+           "Unexpected value!");
+
+    // If there is no obvious reason to prefer the left-hand side over the
+    // right-hand side, ensure the longest lived term is on the right-hand side,
+    // so the shortest lived term will be replaced by the longest lived.  This
+    // tends to expose more simplifications.
+    uint32_t LVN = VN.lookup_or_add(LHS);
+    if ((isa<Argument>(LHS) && isa<Argument>(RHS)) ||
+        (isa<Instruction>(LHS) && isa<Instruction>(RHS))) {
+      // Move the 'oldest' value to the right-hand side, using the value number
+      // as a proxy for age.
+      uint32_t RVN = VN.lookup_or_add(RHS);
+      if (LVN < RVN) {
+        std::swap(LHS, RHS);
+        LVN = RVN;
+      }
+    }
+
+    // If value numbering later deduces that an instruction in the scope is
+    // equal to 'LHS' then ensure it will be turned into 'RHS'.
+    addToLeaderTable(LVN, RHS, Root);
+
+    // Replace all occurrences of 'LHS' with 'RHS' everywhere in the scope.
     unsigned NumReplacements = replaceAllDominatedUsesWith(LHS, RHS, Root);
     Changed |= NumReplacements > 0;
     NumGVNEqProp += NumReplacements;
-  }
 
-  // Now try to deduce additional equalities from this one.  For example, if the
-  // known equality was "(A != B)" == "false" then it follows that A and B are
-  // equal in the scope.  Only boolean equalities with an explicit true or false
-  // RHS are currently supported.
-  if (!RHS->getType()->isIntegerTy(1))
-    // Not a boolean equality - bail out.
-    return Changed;
-  ConstantInt *CI = dyn_cast<ConstantInt>(RHS);
-  if (!CI)
-    // RHS neither 'true' nor 'false' - bail out.
-    return Changed;
-  // Whether RHS equals 'true'.  Otherwise it equals 'false'.
-  bool isKnownTrue = CI->isAllOnesValue();
-  bool isKnownFalse = !isKnownTrue;
+    // Now try to deduce additional equalities from this one.  For example, if
+    // the known equality was "(A != B)" == "false" then it follows that A and B
+    // are equal in the scope.
 
-  // If "A && B" is known true then both A and B are known true.  If "A || B"
-  // is known false then both A and B are known false.
-  Value *A, *B;
-  if ((isKnownTrue && match(LHS, m_And(m_Value(A), m_Value(B)))) ||
-      (isKnownFalse && match(LHS, m_Or(m_Value(A), m_Value(B))))) {
-    Changed |= propagateEquality(A, RHS, Root);
-    Changed |= propagateEquality(B, RHS, Root);
-    return Changed;
-  }
+    // So far we only handle ConstantInts.
+    ConstantInt *CI = dyn_cast<ConstantInt>(RHS);
+    if (!CI)
+      continue;
 
-  // If we are propagating an equality like "(A == B)" == "true" then also
-  // propagate the equality A == B.  When propagating a comparison such as
-  // "(A >= B)" == "true", replace all instances of "A < B" with "false".
-  if (ICmpInst *Cmp = dyn_cast<ICmpInst>(LHS)) {
-    Value *Op0 = Cmp->getOperand(0), *Op1 = Cmp->getOperand(1);
+    // If LHS is a PHINode we might be able to determine all the other phi
+    // nodes in the same block.
+    if (PHINode *PHI = dyn_cast<PHINode>(LHS)) {
+      // Are there any other PHI nodes in the same BB?
+      BasicBlock *Parent = PHI->getParent();
+      if (isa<PHINode>(*Parent->begin()) &&
+          isa<PHINode>(*llvm::next(Parent->begin()))) {
+        // We're looking for a PHIs in the form of:
+        //   %phi1 = i1 [false, %bb1], [false, %bb2], [%toBool, %bb3]
+        // or
+        //   %phi2 = i1 [false, %bb1], [false, %bb2], [true, %bb3]
+        // where RHS is true.
+        BasicBlock *BB = 0;
+        for (int i = 0, e = PHI->getNumIncomingValues(); i != e; ++i) {
+          Value *V = PHI->getIncomingValue(i);
 
-    // If "A == B" is known true, or "A != B" is known false, then replace
-    // A with B everywhere in the scope.
-    if ((isKnownTrue && Cmp->getPredicate() == CmpInst::ICMP_EQ) ||
-        (isKnownFalse && Cmp->getPredicate() == CmpInst::ICMP_NE))
-      Changed |= propagateEquality(Op0, Op1, Root);
+          // We can support a single non-Constant entry, or a single unequal
+          // constant entry.
+          Value *NotEqual = SimplifyICmpInst(ICmpInst::ICMP_NE, V, RHS);
+          if (Constant *C = dyn_cast_or_null<Constant>(NotEqual))
+            if (C->isAllOnesValue())
+              continue;
 
-    // If "A >= B" is known true, replace "A < B" with false everywhere.
-    CmpInst::Predicate NotPred = Cmp->getInversePredicate();
-    Constant *NotVal = ConstantInt::get(Cmp->getType(), isKnownFalse);
-    // Since we don't have the instruction "A < B" immediately to hand, work out
-    // the value number that it would have and use that to find an appropriate
-    // instruction (if any).
-    uint32_t NextNum = VN.getNextUnusedValueNumber();
-    uint32_t Num = VN.lookup_or_add_cmp(Cmp->getOpcode(), NotPred, Op0, Op1);
-    // If the number we were assigned was brand new then there is no point in
-    // looking for an instruction realizing it: there cannot be one!
-    if (Num < NextNum) {
-      Value *NotCmp = findLeader(Root, Num);
-      if (NotCmp && isa<Instruction>(NotCmp)) {
-        unsigned NumReplacements =
-          replaceAllDominatedUsesWith(NotCmp, NotVal, Root);
-        Changed |= NumReplacements > 0;
-        NumGVNEqProp += NumReplacements;
+          if (BB) {
+            BB = 0;
+            break;
+          }
+          BB = PHI->getIncomingBlock(i);
+        }
+
+        if (BB && BlocksOfPHINodes.insert(Parent)) {
+          BasicBlock::iterator I = Parent->begin();
+          bool SafeToReplace = DT->dominates(BB, PHI->getParent());
+          for (; PHINode *PN = dyn_cast<PHINode>(I); ++I) {
+            if (PN == PHI) continue;
+            Value *V = PN->getIncomingValueForBlock(BB);
+            if (SafeToReplace || isa<Constant>(V))
+              Queue.push_back(QueueEntry(PN, V));
+          }
+        }
       }
     }
-    // Ensure that any instruction in scope that gets the "A < B" value number
-    // is replaced with false.
-    addToLeaderTable(Num, NotVal, Root);
 
-    return Changed;
-  }
+    // The rest of the rules only handle boolean equalities with an explicit
+    // true or false RHS.
+    if (!RHS->getType()->isIntegerTy(1))
+      // Not a boolean equality - bail out.
+      continue;
+    // Whether RHS equals 'true'.  Otherwise it equals 'false'.
+    bool isKnownTrue = CI->isAllOnesValue();
+    bool isKnownFalse = !isKnownTrue;
+
+    // If "A && B" is known true then both A and B are known true.  If "A || B"
+    // is known false then both A and B are known false.
+    Value *A, *B;
+    if ((isKnownTrue && match(LHS, m_And(m_Value(A), m_Value(B)))) ||
+        (isKnownFalse && match(LHS, m_Or(m_Value(A), m_Value(B))))) {
+      Queue.push_back(QueueEntry(A, RHS));
+      Queue.push_back(QueueEntry(B, RHS));
+      continue;
+    }
+
+    // If we are propagating an equality like "(A == B)" == "true" then also
+    // propagate the equality A == B.  When propagating a comparison such as
+    // "(A >= B)" == "true", replace all instances of "A < B" with "false".
+    if (ICmpInst *Cmp = dyn_cast<ICmpInst>(LHS)) {
+      Value *Op0 = Cmp->getOperand(0), *Op1 = Cmp->getOperand(1);
+
+      // If "A == B" is known true, or "A != B" is known false, then replace
+      // A with B everywhere in the scope.
+      if ((isKnownTrue && Cmp->getPredicate() == CmpInst::ICMP_EQ) ||
+          (isKnownFalse && Cmp->getPredicate() == CmpInst::ICMP_NE))
+        Queue.push_back(QueueEntry(Op0, Op1));
+
+      // If "A >= B" is known true, replace "A < B" with false everywhere.
+      CmpInst::Predicate NotPred = Cmp->getInversePredicate();
+      Constant *NotVal = ConstantInt::get(Cmp->getType(), isKnownFalse);
+      // Since we don't have the instruction "A < B" immediately to hand, work
+      // out the value number that it would have and use that to find an
+      // appropriate instruction (if any).
+      uint32_t NextNum = VN.getNextUnusedValueNumber();
+      uint32_t Num = VN.lookup_or_add_cmp(Cmp->getOpcode(), NotPred, Op0, Op1);
+      // If the number we were assigned was brand new then there is no point in
+      // looking for an instruction realizing it: there cannot be one!
+      if (Num < NextNum) {
+        Value *NotCmp = findLeader(Root, Num);
+        if (NotCmp && isa<Instruction>(NotCmp)) {
+          unsigned NumReplacements =
+            replaceAllDominatedUsesWith(NotCmp, NotVal, Root);
+          Changed |= NumReplacements > 0;
+          NumGVNEqProp += NumReplacements;
+        }
+      }
+      // Ensure that any instruction in scope that gets the "A < B" value number
+      // is replaced with false.
+      addToLeaderTable(Num, NotVal, Root);
+    }
+  } while (!Queue.empty());
 
   return Changed;
 }
@@ -2207,7 +2272,7 @@ bool GVN::processInstruction(Instruction *I) {
 }
 
 /// runOnFunction - This is the main transformation entry point for a function.
-bool GVN::runOnFunction(Function& F) {
+bool GVN::runOnFunction(Function &F) {
   if (!NoLoads)
     MD = &getAnalysis<MemoryDependenceAnalysis>();
   DT = &getAnalysis<DominatorTree>();
@@ -2358,7 +2423,7 @@ bool GVN::performPRE(Function &F) {
           break;
         }
 
-        Value* predV = findLeader(P, ValNo);
+        Value *predV = findLeader(P, ValNo);
         if (predV == 0) {
           PREPred = P;
           ++NumWithout;
@@ -2429,7 +2494,7 @@ bool GVN::performPRE(Function &F) {
 
       // Create a PHI to make the value available in this block.
       pred_iterator PB = pred_begin(CurrentBlock), PE = pred_end(CurrentBlock);
-      PHINode* Phi = PHINode::Create(CurInst->getType(), std::distance(PB, PE),
+      PHINode *Phi = PHINode::Create(CurInst->getType(), std::distance(PB, PE),
                                      CurInst->getName() + ".pre-phi",
                                      CurrentBlock->begin());
       for (pred_iterator PI = PB; PI != PE; ++PI) {
